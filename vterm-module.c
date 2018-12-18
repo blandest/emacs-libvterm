@@ -518,6 +518,24 @@ static void term_flush_output(Term *term, emacs_env *env) {
   }
 }
 
+static void term_process_string(Term *term, emacs_env *env, unsigned char *str,
+                                size_t len, bool paste) {
+  if (paste)
+    vterm_keyboard_start_paste(term->vt);
+
+  while (str && str[0]) {
+    /* 6 bytes is always enough for any UTF-8 character */
+    if (vterm_output_get_buffer_remaining(term->vt) < 6)
+      term_flush_output(term, env);
+
+    vterm_keyboard_unichar(term->vt, utf8_get_char(str), 0);
+    str = utf8_next_char(str);
+  }
+
+  if (paste)
+    vterm_keyboard_end_paste(term->vt);
+}
+
 static void term_process_key(Term *term, unsigned char *key, size_t len,
                              VTermModifier modifier) {
   if (is_key(key, len, "<return>")) {
@@ -659,8 +677,21 @@ static emacs_value Fvterm_update(emacs_env *env, ptrdiff_t nargs,
     if (env->is_not_nil(env, args[4]))
       modifier = modifier | VTERM_MOD_CTRL;
 
-    // Ignore the final zero byte
-    term_process_key(term, key, len - 1, modifier);
+    bool send_str = false;
+    bool paste = false;
+    if (nargs > 5) {
+      send_str = env->is_not_nil(env, args[5]);
+    }
+    if (nargs > 6) {
+      paste = env->is_not_nil(env, args[6]);
+    }
+    if (send_str) {
+      // Ignore the final zero byte
+      term_process_string(term, env, key, len - 1, paste);
+    } else {
+      // Ignore the final zero byte
+      term_process_key(term, key, len - 1, modifier);
+    }
   }
 
   // Flush output
@@ -774,7 +805,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
       env->make_function(env, 3, 3, Fvterm_new, "Allocates a new vterm.", NULL);
   bind_function(env, "vterm--new", fun);
 
-  fun = env->make_function(env, 1, 5, Fvterm_update,
+  fun = env->make_function(env, 1, 7, Fvterm_update,
                            "Process io and update the screen.", NULL);
   bind_function(env, "vterm--update", fun);
 
