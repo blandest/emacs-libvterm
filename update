@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+git pull perf-impr performance-improve
+git pull upstream master
 mkdir -p build
 cd build
 cmake ..
